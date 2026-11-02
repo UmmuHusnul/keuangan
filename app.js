@@ -9,19 +9,22 @@ const colL=i=>{let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65
 const clean=s=>{s=String(s||'');return /^[=+\-@]/.test(s)?"'"+s:s};
 const gsi=()=>new Promise(r=>{const f=()=>window.google&&google.accounts&&google.accounts.oauth2?r():setTimeout(f,100);f()});
 
-function tok(){return gsi().then(()=>new Promise((res,rej)=>{
+function tok(hint){return gsi().then(()=>new Promise((res,rej)=>{
   if(!tc)tc=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:SC,callback:()=>{}});
   tc.callback=async r=>{if(r.error)return rej(new Error(r.error));TOKEN=r.access_token;EXP=Date.now()+(r.expires_in-60)*1000;
-    try{const u=await(await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+TOKEN}})).json();USER=String(u.email||'').split('@')[0]}catch(e){}
-    res(TOKEN)};
+    try{const u=await(await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+TOKEN}})).json();if(u.email){LS.s('mail',u.email);USER=u.email.split('@')[0]}}catch(e){}
+    LS.s('tk',JSON.stringify({t:TOKEN,e:EXP,u:USER}));LS.s('li','1');res(TOKEN)};
   tc.error_callback=e=>rej(new Error(e.type||'popup'));
-  tc.requestAccessToken({prompt:''})}))}
-async function auth(){if(TOKEN&&Date.now()<EXP)return TOKEN;if(LS.g('li')!='1')throw new Error('Belum masuk');
-  try{return await tok()}catch(e){throw new Error('Sesi habis. Muat ulang aplikasi lalu masuk lagi.')}}
-function loginUI(){loading=false;document.querySelector('.fab').style.display='none';
-  $('#v').innerHTML=`<div class="card" style="text-align:center;margin-top:12vh"><div style="font-size:54px">💰</div><h1>Catatan Keuangan</h1><p style="color:var(--mute);margin:6px 0 18px">Masuk dengan akun Google yang punya akses ke spreadsheet-mu.</p><button class="btn" onclick="signIn()">Masuk dengan Google</button></div>`}
-function signIn(){tok().then(()=>{LS.s('li','1');boot()}).catch(e=>toast('Gagal masuk: '+e.message,'bad'))}
-async function boot(){try{await auth()}catch(e){return loginUI()}document.querySelector('.fab').style.display='';loading=!D.length;load()}
+  const mail=hint||LS.g('mail');tc.requestAccessToken(mail?{prompt:'',login_hint:mail}:{prompt:''})}))}
+async function auth(){if(TOKEN&&Date.now()<EXP)return TOKEN;
+  try{const s=JSON.parse(LS.g('tk')||'null');if(s&&s.e>Date.now()){TOKEN=s.t;EXP=s.e;USER=s.u||'';return TOKEN}}catch(e){}
+  throw new Error('Sesi habis. Muat ulang, lalu ketuk Lanjutkan.')}
+function loginUI(){loading=false;document.querySelector('.fab').style.display='none';const m=LS.g('mail');
+  $('#v').innerHTML=`<div class="card" style="text-align:center;margin-top:12vh"><div style="font-size:54px">💰</div><h1>Catatan Keuangan</h1><p style="color:var(--mute);margin:6px 0 18px">${m?'Sesi login habis (berlaku 1 jam). Ketuk sekali untuk lanjut.':'Masuk dengan akun Google yang punya akses ke spreadsheet-mu.'}</p><button class="btn" onclick="signIn()">${m?'Lanjutkan sebagai '+esc(m):'Masuk dengan Google'}</button></div>`}
+function signIn(){tok().then(boot).catch(e=>{const c=e.message;toast(c=='popup_closed'?'Jendela login ditutup sebelum selesai. Ketuk lagi dan selesaikan.':c=='popup_failed_to_open'?'Pop-up diblokir. Izinkan pop-up untuk situs ini.':'Gagal masuk: '+c,'bad')})}
+async function boot(){try{await auth()}catch(e){if(LS.g('li')=='1'){try{await tok()}catch(x){return loginUI()}}else return loginUI()}
+  document.querySelector('.fab').style.display='';loading=!D.length;load()}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&TOKEN&&Date.now()>=EXP)boot()});
 
 async function api(p,o={}){const t=await auth();
   const r=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+SHEET_ID+p,{...o,headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'}});
